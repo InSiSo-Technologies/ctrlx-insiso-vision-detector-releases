@@ -1,0 +1,98 @@
+# Copy a published release from the private build repository to this public one.
+#
+# Why this exists at all: the snaps are built and released in
+# InSiSo-Technologies/ctrlx-insiso-vision-detector, which is private, so its
+# release assets 404 for anyone without access. This repository is the public
+# face of those same files, and the copy has to happen somewhere with
+# bandwidth to spare -- a GitHub runner, rather than a laptop on a slow link,
+# which is the entire point.
+#
+# Manual rather than automatic. A release becoming public is a decision, and
+# it should not be a side effect of tagging a build.
+name: Mirror a release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to copy, e.g. v5.0.0'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the public release as a prerelease'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write          # to create the release here and upload its assets
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out (for the release notes template)
+        uses: actions/checkout@v4
+
+      # A fine-grained PAT with read access to the private repository's
+      # Contents. GITHUB_TOKEN cannot be used: it is scoped to THIS
+      # repository, and the assets live in another one.
+      - name: Fetch the release and its assets
+        env:
+          GH_TOKEN: ${{ secrets.SOURCE_REPO_TOKEN }}
+          SOURCE: InSiSo-Technologies/ctrlx-insiso-vision-detector
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          # Fail loudly if the secret is missing or cannot see the source --
+          # an empty download that then publishes an assetless release is the
+          # worst outcome, because it looks like it worked.
+          gh release view "$TAG" --repo "$SOURCE" --json tagName,body \
+            > source.json
+          gh release download "$TAG" --repo "$SOURCE" --dir dist --pattern '*.snap'
+          ls -l dist
+          test -n "$(ls -A dist)" || { echo "No .snap assets on $TAG"; exit 1; }
+
+      - name: Record the checksums
+        run: |
+          cd dist
+          sha256sum *.snap | tee ../SHA256SUMS
+          # Published beside the assets so a download over a bad link can be
+          # verified rather than hoped about.
+
+      - name: Publish here
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        run: |
+          set -euo pipefail
+          NOTES=$(python3 - <<'PY'
+          import json
+          src = json.load(open('source.json'))
+          sums = open('SHA256SUMS').read().strip()
+          print(f"""Snap builds of the InSiSo Visual Detector for ctrlX OS.
+
+          | Asset | Device |
+          |---|---|
+          | `..._amd64.snap` | ctrlX CORE **X7**, or ctrlX OS on an IPC |
+          | `..._arm64.snap` | ctrlX CORE **X3** |
+
+          Install from the ctrlX web interface (Settings -> Apps -> Install from
+          file), or `snap install --dangerous ./<file>.snap`.
+
+          ### SHA-256
+
+          ```
+          {sums}
+          ```
+
+          ---
+
+          {src.get('body') or ''}""")
+          PY
+          )
+          FLAGS=""
+          [ "$PRERELEASE" = "true" ] && FLAGS="--prerelease"
+          gh release create "$TAG" dist/*.snap SHA256SUMS \
+            --title "$TAG" --notes "$NOTES" $FLAGS
