@@ -68,18 +68,34 @@ jobs:
         run: |
           set -euo pipefail
           NOTES=$(python3 - <<'PY'
-          import json
+          import json, os
           src = json.load(open('source.json'))
           sums = open('SHA256SUMS').read().strip()
+          # Only the assets this release has: GitHub takes files up to
+          # 2 GiB, and the amd64 snap (NVIDIA runtime, over 3 GB) is larger.
+          devices = {
+              'amd64': 'ctrlX CORE **X5**, **X7**, a ctrlX **IPC**, ctrlX OS in a VM',
+              'arm64': 'ctrlX CORE **X3**',
+          }
+          assets = sorted(os.listdir('dist'))
+          rows = "\n".join(f"| `{a}` | {devices.get(a.rsplit('_', 1)[-1].removesuffix('.snap'), '')} |"
+                           for a in assets)
+          missing = "" if any(a.endswith('_amd64.snap') for a in assets) else (
+              "The amd64 snap (ctrlX CORE X5, X7, IPC) is larger than GitHub's "
+              "2 GiB limit for one file and is not attached. Ask "
+              "srishti@insisotech.com for a download link.\n\n")
           print(f"""Snap builds of the InSiSo Visual Detector for ctrlX OS.
+
+          The first number of the version is the ctrlX OS major (4 = ctrlX OS 4.x).
+          Every build up to 7.2.17 is older than 4.7.18.
 
           | Asset | Device |
           |---|---|
-          | `..._amd64.snap` | ctrlX CORE **X7**, or ctrlX OS on an IPC |
-          | `..._arm64.snap` | ctrlX CORE **X3** |
+          {rows}
 
-          Install from the ctrlX web interface (Settings -> Apps -> Install from
-          file), or `snap install --dangerous ./<file>.snap`.
+          {missing}Install from the ctrlX web interface in Service mode (Settings -> Apps ->
+          Install from file), or `snap install --dangerous ./<file>.snap`. After an
+          update, reboot the device once.
 
           ### SHA-256
 
