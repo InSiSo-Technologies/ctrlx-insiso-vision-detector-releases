@@ -83,7 +83,7 @@ Layer, so a PLC or Node-RED reads it directly:
 - **Object Detection:** `.onnx` models on the CPU or an NVIDIA GPU, and
   `.hef` models on a Hailo-8 module.
 - **Coordinate Mapping:** detected objects in machine millimetres.
-- **Code Reading:** Data Matrix and Code 128.
+- **Code Reading:** the Data Matrix inside each detected label.
 - **3D Dimensioning:** length, breadth and height from a time-of-flight
   camera.
 - **Detection History**, with CSV export.
